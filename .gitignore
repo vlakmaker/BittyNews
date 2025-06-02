@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+
+# Conda environment files (optional)
+*.conda
+*.env
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Editor-specific
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs and local output
+*.log
+logs/
+output/
+debug.log
+
+# dotenv
+.env
+
+# VS Code settings and history
+.history/
+
+# FastAPI auto-reload artifacts
+*.db
+*.sqlite
+__snapshots__/
