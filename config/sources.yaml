@@ -1,0 +1,10 @@
+- name: The Verge
+  url: https://www.theverge.com/rss/index.xml
+  tags: [tech, consumer, AI]
+  weight: 0.8
+
+- name: TechCrunch
+  url: http://feeds.feedburner.com/TechCrunch/
+  tags: [startups, AI, tools]
+  weight: 0.9
+

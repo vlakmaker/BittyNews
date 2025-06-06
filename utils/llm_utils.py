@@ -1,145 +1,131 @@
-# utils/llm_utils.py
+# BittyNews/utils/llm_utils.py
 
 import os
 import requests
-import json
+import json # Good practice to import if you might use it for debugging payloads
 from dotenv import load_dotenv
 
 # --- Environment Variable Loading ---
 # Construct the absolute path to the .env file, assuming it's in the parent directory
-# (e.g., if this file is in BittyScout/utils/, .env is in BittyScout/)
-actual_dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
-print(f"DEBUG: Attempting to load .env from: {actual_dotenv_path}")
+# (e.g., if this file is in BittyNews/utils/, .env is in BittyNews/)
+# This makes the script more robust to where it's called from.
+dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
+# verbose=True provides output from python-dotenv about its actions if needed for debugging .env loading.
+# override=True can be useful if you want .env to take precedence over existing OS environment variables.
+loaded_env = load_dotenv(dotenv_path=dotenv_path, verbose=False, override=False)
 
-# Load .env file. override=True ensures .env vars take precedence over existing os env vars.
-# verbose=True provides output from python-dotenv about its actions.
-found_dotenv = load_dotenv(dotenv_path=actual_dotenv_path, override=True, verbose=True)
-print(f"DEBUG: load_dotenv() result (found and loaded .env?): {found_dotenv}")
-
-# --- Global Configuration Variables ---
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/mistral-7b-instruct") # Default model
-
-# Debug prints for loaded variables
-print(f"DEBUG: Value of OPENROUTER_API_KEY from os.getenv: '{OPENROUTER_API_KEY}'")
-if OPENROUTER_API_KEY:
-    print(f"DEBUG: Length of OPENROUTER_API_KEY: {len(OPENROUTER_API_KEY)}")
+if not loaded_env:
+    print(f"DEBUG llm_utils: WARNING - .env file not found or not loaded from {dotenv_path}")
 else:
-    print("DEBUG: WARNING! OPENROUTER_API_KEY is None or empty after attempting to load .env.")
+    print(f"DEBUG llm_utils: Successfully loaded .env from {dotenv_path}")
 
-print(f"DEBUG: Value of OPENROUTER_BASE_URL: '{OPENROUTER_BASE_URL}'")
-print(f"DEBUG: Initial MODEL_NAME: '{MODEL_NAME}'")
 
-AVAILABLE_MODELS = {
-    "openai/gpt-3.5-turbo": "Fast and affordable general-purpose model.",
-    "openai/gpt-4-turbo": "Advanced reasoning and context retention.",
-    "anthropic/claude-3-opus": "High-end Claude 3 model, great for reasoning.",
-    "anthropic/claude-3-sonnet": "Mid-range Claude 3 with good balance.",
-    "anthropic/claude-3-haiku": "Fastest Claude 3, good for lightweight tasks.",
-    "meta-llama/llama-3-8b-instruct": "LLaMA 3 8B, solid open-source performance.",
-    "meta-llama/llama-3-70b-instruct": "LLaMA 3 70B, larger and more accurate.",
-    "mistralai/mistral-7b-instruct": "Small, fast open-source model.",
-    "mistralai/mixtral-8x7b-instruct": "Mixture of experts for efficiency.",
-    "google/gemini-pro": "Multimodal model from Google.",
-}
-
-def set_model(model_name: str):
+# --- LLM Call Function ---
+def call_llm(prompt: str, model_name: str = None, system_prompt: str = "You are a helpful assistant."):
     """
-    Sets the global MODEL_NAME to be used for LLM calls.
-    Falls back to the default if the provided model_name is not in AVAILABLE_MODELS.
+    Sends a prompt to the configured LLM endpoint (OpenRouter) and returns the response.
+
+    Args:
+        prompt (str): The input prompt to send to the LLM.
+        model_name (str, optional): Overrides the default model if provided.
+                                    Defaults to None, which then uses MODEL_NAME from .env.
+        system_prompt (str, optional): The system message for the LLM.
+                                       Defaults to "You are a helpful assistant.".
+
+    Returns:
+        str: The content returned by the LLM, or an error message string if an issue occurs.
     """
-    global MODEL_NAME # Declare that we are modifying the global variable
-    if model_name not in AVAILABLE_MODELS:
-        print(f"⚠️  Unknown model '{model_name}'. Falling back to current default: {MODEL_NAME}")
-    else:
-        MODEL_NAME = model_name
-        print(f"✅ Using model: {MODEL_NAME}")
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    # Default model from .env, with a fallback if MODEL_NAME is also not in .env
+    default_model_from_env = os.getenv("MODEL_NAME", "openai/gpt-3.5-turbo") 
 
-def call_llm(prompt: str, system_prompt: str = "") -> str:
-    """
-    Makes a call to the OpenRouter API with the given prompt and system prompt.
-    Uses the globally set MODEL_NAME and OPENROUTER_API_KEY.
-    """
-    global MODEL_NAME # Ensure we're using the potentially updated global MODEL_NAME
-    target_url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+    # Determine which model to use
+    model_to_use = model_name if model_name is not None else default_model_from_env
 
-    print(f"DEBUG: API Key inside call_llm before header creation: '{OPENROUTER_API_KEY}'")
-
-    if not OPENROUTER_API_KEY:
-        print("❌ ERROR: OPENROUTER_API_KEY is not set. Cannot make LLM call.")
-        return "⚠️ Failed to generate response: API key missing or not loaded."
-
+    # --- Sanity Checks and Debugging ---
+    print(f"DEBUG llm_utils: Attempting LLM call with model: '{model_to_use}'")
+    if not api_key:
+        print("DEBUG llm_utils: ERROR - OPENROUTER_API_KEY is not set in environment variables!")
+        return "Error: API Key not configured. Please check your .env file and ensure OPENROUTER_API_KEY is set."
+    
+    # --- Prepare Request ---
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://xuecodex.tech",  # Optional, but helps OpenRouter track usage
-        "X-Title": "BittyScout CLI",              # Optional: Helps with dashboard stats
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": os.getenv("HTTP_REFERER", "https://your-app-domain.com"), # Replace with your actual site or app name
+        "X-Title": os.getenv("X_TITLE", "BittyNews")  # Replace with your actual app name
     }
-    print(f"DEBUG: Headers being sent: {json.dumps(headers, indent=2)}")
-
-    messages = []
-    if system_prompt: # Only add system message if system_prompt is not empty
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": MODEL_NAME, # Use the globally (potentially updated) MODEL_NAME
-        "messages": messages,
-        "temperature": 0.7
+        "model": model_to_use,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": float(os.getenv("LLM_TEMPERATURE", 0.7)) # Allow temperature to be configured via .env
     }
-    print(f"DEBUG: Payload being sent: {json.dumps(payload, indent=2)}")
-    print(f"ℹ️  Attempting LLM call to: {target_url} with model {MODEL_NAME}")
+    
+    # For debugging the exact payload:
+    # print(f"DEBUG llm_utils: Payload: {json.dumps(payload, indent=2)}")
 
-
-    response_text = None  # Initialize to store response text for logging
+    # --- Make API Call ---
     try:
+        target_url = f"{base_url.rstrip('/')}/chat/completions"
         response = requests.post(target_url, headers=headers, json=payload, timeout=30) # Added timeout
-        response_text = response.text # Store text for logging in all cases
-
-        print(f"ℹ️  Response Status Code: {response.status_code}")
-        # Print only the beginning of the response text to avoid flooding logs if it's huge
-        print(f"ℹ️  Response Text (first 500 chars): {response_text[:500] if response_text else 'N/A'}")
-
-        response.raise_for_status()  # Raises HTTPError for 4xx/5xx responses
-
-        result = response.json() # This is where "Expecting value" error might occur if not JSON
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
         
-        if "choices" not in result or not result["choices"]:
-            print(f"❌ LLM call failed: 'choices' array missing or empty in response.")
-            print(f"Full Response JSON: {result}")
-            return "⚠️ Failed to generate response: No choices returned."
+        data = response.json()
         
-        choice = result["choices"][0]
-        if "message" not in choice or "content" not in choice["message"]:
-            print(f"❌ LLM call failed: 'message' or 'content' missing in response structure.")
-            print(f"Full Response JSON: {result}")
-            return "⚠️ Failed to generate response: Malformed response structure."
-            
-        return choice["message"]["content"].strip()
+        if data.get("choices") and len(data["choices"]) > 0 and data["choices"][0].get("message") and data["choices"][0]["message"].get("content"):
+            return data["choices"][0]["message"]["content"].strip()
+        else:
+            print(f"DEBUG llm_utils: ERROR - LLM response structure was unexpected.")
+            print(f"DEBUG llm_utils: Full Response JSON: {data}")
+            return "Error: LLM response format was invalid."
 
     except requests.exceptions.HTTPError as http_err:
-        print(f"❌ LLM call failed with HTTP error: {http_err}")
-        print(f"Full Response Text (if available): {response_text if response_text else 'N/A'}")
-        return "⚠️ Failed to generate response due to HTTP error."
-    except requests.exceptions.JSONDecodeError as json_err:
-        print(f"❌ LLM call failed to decode JSON: {json_err}")
-        print(f"Full Response Text (that was not JSON): {response_text if response_text else 'N/A'}")
-        return "⚠️ Failed to generate response due to invalid JSON from server."
-    except KeyError as key_err:
-        print(f"❌ LLM call failed: Unexpected JSON structure. Missing key: {key_err}")
-        # We assume `result` is defined if we reach here from the main try block after response.json()
-        print(f"Full Response JSON: {result if 'result' in locals() else 'Response was not parsed as JSON or result not available.'}")
-        return "⚠️ Failed to generate response due to unexpected data structure."
+        error_content = "No response body"
+        try:
+            error_content = response.text
+        except Exception:
+            pass # response might not have .text if connection failed earlier
+        print(f"DEBUG llm_utils: HTTP error occurred: {http_err} - Status: {response.status_code} - Response: {error_content}")
+        return f"Error: LLM call failed with HTTP error {response.status_code}."
+    except requests.exceptions.Timeout:
+        print(f"DEBUG llm_utils: Request timed out.")
+        return "Error: LLM call timed out."
+    except requests.exceptions.RequestException as req_err: # Catches other requests-related errors (e.g., connection error)
+        print(f"DEBUG llm_utils: Request exception occurred: {req_err}")
+        return f"Error: LLM call failed due to a request issue ({req_err})."
     except Exception as e:
-        print(f"❌ LLM call failed with an unexpected error: {type(e).__name__} - {e}")
-        if response_text:
-             print(f"Full Response Text (at time of error): {response_text}")
-        return "⚠️ Failed to generate response."
+        # Catch any other unexpected errors
+        print(f"DEBUG llm_utils: An unexpected error occurred during LLM call: {e} (Type: {type(e).__name__})")
+        # It's good to see the traceback for truly unexpected errors
+        import traceback
+        traceback.print_exc()
+        return "Error: LLM call failed due to an unexpected error."
 
-def list_available_models():
-    """Prints a list of available LLM models and their descriptions."""
-    print("\n🧠 Available LLM Models via OpenRouter:\n")
-    for model_id, description in AVAILABLE_MODELS.items():
-        print(f"- {model_id:<40}  # {description}")
-    print()
+# --- Example Usage (for testing this file directly) ---
+if __name__ == "__main__":
+    print("\n--- Testing llm_utils.py directly ---")
+    
+    # Ensure your .env file has OPENROUTER_API_KEY and optionally MODEL_NAME
+    # If OPENROUTER_API_KEY is not set, this will print the error message from call_llm
+    
+    test_prompt = "What is the capital of France?"
+    print(f"\nSending test prompt: '{test_prompt}' using default model...")
+    response_default = call_llm(test_prompt)
+    print(f"Response (default model): {response_default}")
+
+    # Test with a specific model override (replace with a valid model you have access to)
+    # test_model_override = "mistralai/mistral-7b-instruct" 
+    test_model_override = os.getenv("MODEL_NAME") # Use the same default for testing override path
+    if test_model_override: # Only test if MODEL_NAME is set, to avoid forcing a specific one here
+        print(f"\nSending test prompt using specific model: '{test_model_override}'...")
+        response_override = call_llm(test_prompt, model_name=test_model_override)
+        print(f"Response (override model '{test_model_override}'): {response_override}")
+    else:
+        print("\nSkipping model override test as MODEL_NAME is not set in .env for this example.")
+
+    print("\n--- Test complete ---")
