@@ -1,97 +1,118 @@
-# main.py
+# BittyNews/main.py
 import os
-import time # Import time for potential delays
+import time
 from dotenv import load_dotenv
-from agents.scraper.scraper_agent import ScraperAgent # Assuming this path is correct
-from agents.aifiltering.ai_filter_agent import AIFilterAgent # Assuming this path
-from agents.summarizer.summarizer_agent import SummarizerAgent # Import the agent
 
-# Remove call_llm import from main.py if it's only used by agents
-# from utils.llm_utils import call_llm 
+# Import utility and agent classes
+from utils import db_utils # For direct DB interactions from main if needed, and table creation
+from agents.scraper.scraper_agent import ScraperAgent
+from agents.aifiltering.ai_filter_agent import AIFilterAgent
+from agents.summarizer.summarizer_agent import SummarizerAgent
 
-def load_environment():
-    # This is good, but your llm_utils.py also loads .env. 
-    # One load at the start of the app or in the first module needing it is fine.
-    # python-dotenv is usually safe to call multiple times (won't overwrite if already loaded unless override=True).
+def load_environment_and_debug():
+    """Loads .env and prints some initial debug info."""
+    # .env loading is also handled by llm_utils and db_utils,
+    # but calling it here ensures any main.py specific .env vars are loaded early.
+    # python-dotenv is safe to call multiple times.
     dotenv_path = os.path.join(os.getcwd(), '.env')
-    # print(f"DEBUG main: Attempting to load .env from: {dotenv_path}")
-    # loaded = load_dotenv(dotenv_path)
-    # print(f"DEBUG main: load_dotenv() result: {loaded}")
-    # These debugs are good for initial setup, can be commented out later
-    # print(f"DEBUG main: Value of OPENROUTER_API_KEY: '{os.getenv('OPENROUTER_API_KEY')}'")
-    # print(f"DEBUG main: Value of GROQ_API_KEY: '{os.getenv('GROQ_API_KEY')}'") # Check if Groq key is loaded
-    # print(f"DEBUG main: Value of PRIMARY_GROQ_MODEL: '{os.getenv('PRIMARY_GROQ_MODEL')}'")
-    # print(f"DEBUG main: Value of FALLBACK_OPENROUTER_MODEL: '{os.getenv('FALLBACK_OPENROUTER_MODEL')}'")
-    pass # llm_utils.py handles .env loading for LLM vars. 
-         # If main.py needs other .env vars, load_dotenv() here is fine.
+    loaded = load_dotenv(dotenv_path)
+    
+    print("--- Initial Environment Debug ---")
+    if loaded:
+        print(f"DEBUG main: .env successfully loaded from {dotenv_path}")
+    else:
+        print(f"DEBUG main: WARNING - .env file not found or not loaded from {dotenv_path}")
+        
+    print(f"DEBUG main: GROQ_API_KEY Loaded: {'Yes' if os.getenv('GROQ_API_KEY') else 'No'}")
+    print(f"DEBUG main: OPENROUTER_API_KEY Loaded: {'Yes' if os.getenv('OPENROUTER_API_KEY') else 'No'}")
+    print(f"DEBUG main: PRIMARY_GROQ_MODEL: '{os.getenv('PRIMARY_GROQ_MODEL')}'")
+    print(f"DEBUG main: FALLBACK_OPENROUTER_MODEL: '{os.getenv('FALLBACK_OPENROUTER_MODEL')}'")
+    print("---------------------------------")
 
 def main():
-    load_environment() # Call it once if main or other non-LLM parts need .env vars directly
+    load_environment_and_debug()
 
-    print("🔍 Fetching articles...")
+    # --- 1. Scrape and Store New Articles ---
     scraper = ScraperAgent()
-    # Ensure your ScraperAgent has a method like fetch() or get_jobs()
-    # Based on previous files, it was get_jobs()
-    articles = scraper.fetch() # Use the correct method name for your ScraperAgent
-    
-    # Deduplicate articles based on link or title to avoid processing the same article multiple times
-    # if it comes from different feeds or appears multiple times in one feed.
-    seen_links = set()
-    unique_articles = []
-    for article in articles:
-        link = article.get("link") or article.get("url") # Handle both possible keys
-        if link and link not in seen_links:
-            unique_articles.append(article)
-            seen_links.add(link)
-        elif not link: # Keep articles without links if you want, or decide to discard
-            unique_articles.append(article) 
+    print("\n🔍 Fetching and storing new articles...")
+    total_feed_items, newly_added_to_db = scraper.fetch()
+    print(f"ℹ️  Scraper processed {total_feed_items} items from feeds, added {newly_added_to_db} new articles to the database.")
+
+    # --- 2. AI Relevance Filtering ---
+    ai_filter = AIFilterAgent() # Uses defaults from its __init__ or .env via call_llm
+    articles_to_filter = db_utils.get_articles_for_filtering()
+
+    if not articles_to_filter:
+        print("\n✅ No new articles to filter for AI relevance.")
+    else:
+        print(f"\n🔍 Filtering {len(articles_to_filter)} articles for AI relevance...")
+        retained_count = 0
+        for i, article_dict in enumerate(articles_to_filter):
+            article_title = article_dict.get('title', 'No Title')
+            print(f"  Filtering article {i+1}/{len(articles_to_filter)}: {article_title[:70]}...")
             
-    print(f"✅ Retrieved {len(articles)} articles, {len(unique_articles)} unique articles (by link).")
-    articles_to_process = unique_articles
+            title_for_filter = article_dict.get("title", "")
+            content_for_filter = article_dict.get("original_summary", "") # Use original_summary from DB
 
-
-    # --- AI Filtering ---
-    # You can pass specific models for filtering, or let it use .env defaults from llm_utils
-    # ai_filter = AIFilterAgent(primary_groq_model="specific-groq-for-filtering") 
-    ai_filter = AIFilterAgent() # Uses defaults defined in its __init__ or .env via call_llm
-    relevant_articles = []
-    print(f"🔍 Filtering {len(articles_to_process)} articles for AI relevance...")
-
-    for i, article in enumerate(articles_to_process):
-        print(f"  Filtering article {i+1}/{len(articles_to_process)}: {article.get('title', 'No Title')[:70]}...")
-        title = article.get("title", "")
-        # Use 'summary' or 'description' from the article for filtering
-        content_for_filtering = article.get("summary", article.get("description", ""))
+            is_relevant = ai_filter.is_about_ai(title_for_filter, content_for_filter)
+            
+            # Update the database with the filtering result
+            db_utils.update_article_ai_relevance(
+                link=article_dict["link"], 
+                is_relevant=is_relevant,
+                model_used=(ai_filter.primary_groq_model_for_agent or os.getenv("PRIMARY_GROQ_MODEL")) # Log model used
+            )
+            if is_relevant:
+                retained_count +=1
+            
+            # Configurable delay to respect API rate limits
+            time.sleep(float(os.getenv("FILTER_DELAY_SECONDS", 1.5)))
         
-        if ai_filter.is_about_ai(title, content_for_filtering):
-            relevant_articles.append(article)
+        print(f"✅ AI relevance filtering complete. {retained_count} articles marked as AI-relevant.")
+
+    # --- 3. Summarization of AI-Relevant Articles ---
+    summarizer = SummarizerAgent() # Uses defaults from its __init__ or .env via call_llm
+    
+    # Determine how many articles to summarize
+    # We query for articles that are AI-relevant AND not yet summarized
+    # TOP_N_SUMMARIES refers to how many we want to process in this run.
+    top_n_to_summarize_config = int(os.getenv("TOP_N_SUMMARIES", 5))
+    articles_needing_summary = db_utils.get_articles_for_summarization(limit=top_n_to_summarize_config)
+
+    if not articles_needing_summary:
+        print("\n✅ No new AI-relevant articles to summarize.")
+    else:
+        actual_to_summarize_count = len(articles_needing_summary)
+        print(f"\n🧠 Summarizing {actual_to_summarize_count} AI-relevant articles (up to configured top {top_n_to_summarize_config})...\n")
+
+        for i, article_dict in enumerate(articles_needing_summary):
+            article_title = article_dict.get('title', 'No Title')
+            print(f"  Summarizing article {i+1}/{actual_to_summarize_count}: {article_title[:70]}...")
+            
+            generated_summary = summarizer.summarize(article_dict) # Pass the whole dict
+            
+# Update the database with the summary
+            db_utils.update_article_llm_summary(
+                link=article_dict["link"],
+                summary_text=generated_summary,  # <--- Corrected to 'summary_text'
+                model_used=(summarizer.primary_model or os.getenv("PRIMARY_GROQ_MODEL"))
+            )
+
+            print(f"📄 Article: {article_title}")
+            print(f"   Link: {article_dict.get('link')}")
+            print(f"   Summary by LLM: {generated_summary}\n")
+            
+            time.sleep(float(os.getenv("SUMMARY_DELAY_SECONDS", 2.0)))
         
-        # Add a delay to respect rate limits, especially for Groq
-        # Adjust this based on observed behavior and API limits (e.g., Groq free tier)
-        time.sleep(float(os.getenv("FILTER_DELAY_SECONDS", 1.5))) # Configurable delay
+        print(f"✅ Summarization complete for {actual_to_summarize_count} articles.")
 
-    print(f"✅ {len(relevant_articles)} AI-related articles retained.")
-
-    # --- Summarization ---
-    top_n = min(int(os.getenv("TOP_N_SUMMARIES", 5)), len(relevant_articles))
-    print(f"\n🧠 Summarizing top {top_n} articles...\n")
-
-    # summarizer = SummarizerAgent(primary_model="specific-groq-for-summaries")
-    summarizer = SummarizerAgent() # Uses defaults defined in its __init__ or .env via call_llm
-
-    for i, article_to_summarize in enumerate(relevant_articles[:top_n]):
-        print(f"  Summarizing article {i+1}/{top_n}: {article_to_summarize.get('title', 'No Title')[:70]}...")
-        # The SummarizerAgent's summarize method now handles truncation
-        generated_summary = summarizer.summarize(article_to_summarize) 
-        
-        print(f"📄 Article: {article_to_summarize.get('title')}")
-        print(f"   Link: {article_to_summarize.get('link') or article_to_summarize.get('url')}") # Show the link
-        print(f"   Summary by LLM: {generated_summary}\n")
-        
-        # Add a delay here as well
-        time.sleep(float(os.getenv("SUMMARY_DELAY_SECONDS", 2.0))) # Configurable delay
-
-    print("🎉 BittyNews run complete!")
+    print("\n🎉 BittyNews run complete!")
 
 if __name__ == "__main__":
+    # 0. Ensure DB tables are created before anything else
+    # This should be called once when the application is first set up,
+    # or at the start of each run if it's safe (CREATE TABLE IF NOT EXISTS).
+    print("--- Ensuring database schema ---")
+    db_utils.create_tables_if_not_exist()
+    print("------------------------------\n")
     main()

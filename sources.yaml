@@ -1,0 +1,30 @@
+sources:
+  - name: "The Verge"
+    url: "https://www.theverge.com/rss/index.xml"
+    notes: "Tech + AI culture, often partial content; newspaper3k may need fallback."
+    tags: ["AI", "Tech", "Culture"]
+    weight: 1.0
+
+  - name: "TechCrunch (Official)"
+    url: "https://techcrunch.com/feed/"
+    notes: "Well-structured feed, covers AI startups and funding."
+    tags: ["AI", "Startups", "Funding"]
+    weight: 1.5
+
+  - name: "MIT Technology Review"
+    url: "https://www.technologyreview.com/feed/"
+    notes: "High-quality, often long-form articles on AI and emerging tech."
+    tags: ["AI", "DeepTech", "Ethics"]
+    weight: 2.0
+
+  - name: "Wired"
+    url: "https://www.wired.com/feed/rss"
+    notes: "Tech/culture coverage, AI ethics and policy included."
+    tags: ["Tech", "AI", "Society"]
+    weight: 1.2
+
+  - name: "VentureBeat AI"
+    url: "http://feeds.feedburner.com/venturebeat/Ai"
+    notes: "Specific AI focus; feed content quality can vary."
+    tags: ["AI"]
+    weight: 0.8

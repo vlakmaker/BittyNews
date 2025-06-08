@@ -21,7 +21,7 @@ class SummarizerAgent:
         title = article.get("title", "No Title")
         # Prefer 'summary' if available, then 'description', then a default.
         # In your RSS feeds, 'summary' is usually the main content snippet.
-        content_to_summarize = article.get("summary", article.get("description", "No content available for summarization."))
+        content_to_summarize = article.get("original_summary", "No content available for summarization.") # <--- CORRECTED HERE
 
         # Truncate title if it's excessively long for the prompt
         if len(title) > 250: # Keep title relatively concise in the prompt
