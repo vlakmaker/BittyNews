@@ -1,0 +1,103 @@
+<!-- templates/newsletter.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🧠 BittyNews Digest — {{ date }}</title>
+  <style>
+    body {
+      background: linear-gradient(145deg, #f0f4ff, #ffffff);
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+      color: #1c1e21;
+      padding: 2rem;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 720px;
+      background: #ffffff;
+      margin: auto;
+      padding: 2rem;
+      border-radius: 16px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+    }
+
+    h1 {
+      font-size: 2em;
+      color: #374785;
+      margin-bottom: 0.2em;
+    }
+
+    .subtitle {
+      font-size: 1em;
+      color: #6b7280;
+      margin-bottom: 1.5rem;
+    }
+
+    h2 {
+      font-size: 1.25em;
+      color: #333;
+      margin-bottom: 0.3em;
+    }
+
+    a {
+      color: #5170d7;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    em {
+      font-size: 0.9em;
+      color: #7a7a7a;
+    }
+
+    p {
+      line-height: 1.6em;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 2rem 0;
+    }
+
+    footer {
+      text-align: center;
+      font-size: 0.85em;
+      color: #999;
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .branding {
+      color: #5170d7;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧠 BittyNews Digest</h1>
+    <div class="subtitle">{{ date }} — AI highlights at a glance</div>
+
+    <p>Here’s what’s moving in the world of AI today, filtered and summarized by Bitty’s little helpers:</p>
+
+    {% for article in articles %}
+      <h2><a href="{{ article.link }}">{{ article.title }}</a></h2>
+      <p><em>{{ article.source_name }} • {{ article.published_at_formatted }}</em></p>
+      <p>{{ article.llm_summary }}</p>
+      <hr>
+    {% endfor %}
+
+    <footer>
+      🚀 Delivered by <span class="branding">BittyNews</span><br>
+      Your daily spark of AI insight — built with ✨ by BittyGPT
+    </footer>
+  </div>
+</body>
+</html>
+
